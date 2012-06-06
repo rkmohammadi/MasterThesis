@@ -1,0 +1,109 @@
+function closeGM = findClosestGM(sertoli, connectedGerm, ND)
+sertoliLbl = bwlabel(sertoli,4);
+germBoundary = imdilate(connectedGerm,strel('disk',1)) - connectedGerm;
+germBoundaryLbl = bwlabel(germBoundary,8);
+stats = regionprops(sertoliLbl, 'Centroid');
+num = numel(stats);
+% cell of 2D that the first column store a list of direct germ mass
+% neighbors and their distance. The second column store the list of germ
+% Mass that connected to the current sertoli cell via another sertoli
+% cells. So, it includes germ mass label, distance and connecting sertoli.
+closeGM = cell(num,2);
+
+GMandSertoli = sertoliLbl - germBoundaryLbl;
+[row, col] = size(GMandSertoli);
+centers = round(cat(1,stats.Centroid));
+for i = 1 : num
+    cntr = centers(i,:);
+    NS = neighboringSertoli(i, cntr, row,col,GMandSertoli,ND);
+    if numel(NS) > 0
+        directNS = directNeighbor(i, centers(i,:), NS, centers, lbl, row, col);
+        %  if you want to have pair of connected region uncomment following line
+        %         for j= 1 : numel(directNS)
+        %             NRG{directNS(j)} = [NRG{directNS(j)}, i];
+        %         end
+        NRG{i} = [NRG{i}, directNS];
+    end
+end
+end
+
+function NS = neighboringSertoli(currentR, centroid, row,col,lbl,ND)
+currentBox = lbl(max(1,centroid(2)-ND): min(centroid(2)+ND, row), ...
+    max(1,centroid(1)-ND): min(centroid(1)+ND, col));
+[~, ~, v] = find(currentBox);
+NS = {[], [], []};
+v = sort(v);
+for j = 1 : numel(v)-1
+    if (v(j) ~= currentR && v(j) ~= v(j+1))
+        if v(j) > 0
+            NS{1} = [NS{1}, v(j)];
+        else
+            NS{2} = [NS{2}, v(j)];
+        end
+    end
+end
+
+if (numel(v) > 0 && v(end) ~= currentR )
+    if v(end) > 0
+        NS{1} = [NS{1}, v(end)];
+    else
+        NS{2} = [NS{2}, v(end)];
+    end
+end
+numGM = numel(NS{2});
+if numGM > 0
+    tmpNS = zeros(numGM,4);
+    cntrInROI = min(centroid, [80 80]);
+    bridgeRegion = cell(numGM,1);
+    for l = 1 : numGM
+        [r,c] = find(currentBox == NS{2}(l));
+        D = sqrt((r-cntrInROI(2)).^2 + (c-cntrInROI(1)).^2);
+        [val, ind] =min(D);
+        tmpNS(l,1) = - NS{2}(l); % germ mass label
+        tmpNS(l,2) = val; % ditance of centriod and nerest pixel in boundary
+        % first coordinate of nearest pixel or row
+        tmpNS(l,3) = r(ind)+ max(1,centroid(2)-ND)- 1;
+        % second coordinate of nearest pixel or column
+        tmpNS(l,4) = c(ind)+max(1,centroid(1)-ND) - 1;
+        BR = checkBridgeRegion()
+    end
+    NS{2} = tmpNS;
+end
+end
+
+function directNS = directNeighbor(currentR, centroid, NS, centers, lbl, row, col)
+%neighborhood distance of centroid that is applied to check direct conection
+n= 5;
+
+directNS = [];
+for i = 1 : numel(NS)
+    % collecting some pixels in between regions
+    connectingPixels = [];
+    NCentroid = centers(NS(i), :);
+    [x, y, cp] = improfile(lbl, ...
+        [centroid(1), NCentroid(1)], [centroid(2), NCentroid(2)]);
+    connectingPixels = [connectingPixels; cp];
+    cp = improfile(lbl, ...
+        max([centroid(1)-n, NCentroid(1)-n],1), [centroid(2), NCentroid(2)]);
+    connectingPixels = [connectingPixels; cp];
+    cp = improfile(lbl, ...
+        min([centroid(1)+n, NCentroid(1)+n], col), [centroid(2), NCentroid(2)]);
+    connectingPixels = [connectingPixels; cp];
+    cp = improfile(lbl, ...
+        [centroid(1), NCentroid(1)], max([centroid(2)-n, NCentroid(2)-n], 1));
+    connectingPixels = [connectingPixels; cp];
+    cp = improfile(lbl, ...
+        [centroid(1), NCentroid(1)], min([centroid(2)+n, NCentroid(2)+n], row));
+    connectingPixels = [connectingPixels; cp];
+    
+    for j = 1 : numel(connectingPixels)
+        if (connectingPixels(j) ~= 0 && connectingPixels(j) ~= currentR ...
+                && connectingPixels(j) ~= NS(i))
+            break;
+        end
+    end
+    if j == numel(connectingPixels)
+        directNS = [directNS, NS(i)];
+    end
+end
+end
